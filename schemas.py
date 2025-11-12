@@ -11,38 +11,44 @@ Model name is converted to lowercase for the collection name:
 - BlogPost -> "blogs" collection
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
-
-# Example schemas (replace with your own):
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List
 
 class User(BaseModel):
     """
     Users collection schema
-    Collection name: "user" (lowercase of class name)
+    Collection name: "user"
     """
     name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+    email: EmailStr = Field(..., description="Email address")
+    password: str = Field(..., min_length=4, description="Plain password for demo only")
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+class Hotel(BaseModel):
+    """Hotels collection schema: 5-star hotels"""
+    name: str
+    city: str
+    country: str
+    price_per_night: float = Field(..., ge=0)
+    rating: float = Field(..., ge=0, le=5)
+    image: Optional[str] = None
+    description: Optional[str] = None
+    amenities: List[str] = []
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
 
-# Add your own schemas here:
-# --------------------------------------------------
+class Booking(BaseModel):
+    """Bookings collection schema"""
+    user_id: str
+    hotel_id: str
+    check_in: str  # ISO date string
+    check_out: str  # ISO date string
+    guests: int = Field(..., ge=1)
+    phone: Optional[str] = None
+    special_requests: Optional[str] = None
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class ContactMessage(BaseModel):
+    """Contact messages from users"""
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    message: str

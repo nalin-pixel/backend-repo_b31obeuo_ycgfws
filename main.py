@@ -1,8 +1,14 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+from bson import ObjectId
 
-app = FastAPI()
+from database import db, create_document, get_documents
+from schemas import User, Hotel, Booking, ContactMessage
+
+app = FastAPI(title="Hotel Booking API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -12,17 +18,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+# Utility to convert Mongo docs
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend API!"}
+def serialize_doc(doc):
+    d = dict(doc)
+    if "_id" in d:
+        d["id"] = str(d.pop("_id"))
+    return d
+
+@app.get("/")
+def root():
+    return {"message": "Hotel Booking Backend is running"}
 
 @app.get("/test")
 def test_database():
-    """Test endpoint to check if database is available and accessible"""
     response = {
         "backend": "✅ Running",
         "database": "❌ Not Available",
@@ -31,39 +40,76 @@ def test_database():
         "connection_status": "Not Connected",
         "collections": []
     }
-    
+
     try:
-        # Try to import database module
-        from database import db
-        
         if db is not None:
             response["database"] = "✅ Available"
-            response["database_url"] = "✅ Configured"
+            response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
             response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
             response["connection_status"] = "Connected"
-            
-            # Try to list collections to verify connectivity
             try:
                 collections = db.list_collection_names()
-                response["collections"] = collections[:10]  # Show first 10 collections
+                response["collections"] = collections[:10]
                 response["database"] = "✅ Connected & Working"
             except Exception as e:
                 response["database"] = f"⚠️  Connected but Error: {str(e)[:50]}"
         else:
             response["database"] = "⚠️  Available but not initialized"
-            
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
-    
-    # Check environment variables
-    import os
-    response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
-    response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
-    
+
     return response
 
+# Auth (simple demo)
+class LoginPayload(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/auth/register")
+def register_user(user: User):
+    # Check if email exists
+    existing = db["user"].find_one({"email": user.email}) if db else None
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user_id = create_document("user", user)
+    return {"id": user_id, "name": user.name, "email": user.email}
+
+@app.post("/api/auth/login")
+def login(payload: LoginPayload):
+    doc = db["user"].find_one({"email": payload.email}) if db else None
+    if not doc or doc.get("password") != payload.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"token": str(doc.get("_id")), "name": doc.get("name"), "email": doc.get("email")}
+
+# Hotels
+@app.get("/api/hotels", response_model=List[dict])
+def list_hotels():
+    hotels = get_documents("hotel") if db else []
+    return [serialize_doc(h) for h in hotels]
+
+@app.post("/api/hotels")
+def create_hotel(hotel: Hotel):
+    hotel_id = create_document("hotel", hotel)
+    return {"id": hotel_id}
+
+# Booking
+@app.post("/api/bookings")
+def create_booking(booking: Booking):
+    # Validate referenced docs exist
+    if not ObjectId.is_valid(booking.user_id) or not ObjectId.is_valid(booking.hotel_id):
+        raise HTTPException(status_code=400, detail="Invalid IDs")
+    if not db["user"].find_one({"_id": ObjectId(booking.user_id)}):
+        raise HTTPException(status_code=404, detail="User not found")
+    if not db["hotel"].find_one({"_id": ObjectId(booking.hotel_id)}):
+        raise HTTPException(status_code=404, detail="Hotel not found")
+    booking_id = create_document("booking", booking)
+    return {"id": booking_id}
+
+# Contact messages
+@app.post("/api/contact")
+def contact(msg: ContactMessage):
+    msg_id = create_document("contactmessage", msg)
+    return {"id": msg_id, "status": "received"}
 
 if __name__ == "__main__":
     import uvicorn
